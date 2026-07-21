@@ -17,7 +17,16 @@ serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "1.1"
 
 # Cryptography and Identity
-ed25519-dalek = "2.1.1"
+#
+# `rand_core` must be enabled explicitly: stellarconduit-core's ffi.rs calls
+# SigningKey::generate(), which ed25519-dalek only compiles in under this
+# feature. Core's own Cargo.toml doesn't request it, and only builds today
+# because some other dependency in core's graph happens to enable it via
+# Cargo's cross-crate feature unification. That's fragile — a different
+# dependency graph (like this crate's, which also pulls in soroban-sdk) can
+# resolve without it and break core's build. Requesting it here is a
+# workaround on our side; core's manifest should really enable this itself.
+ed25519-dalek = { version = "2.1.1", features = ["rand_core"] }
 sha2 = "0.10.8"
 
 # Async runtime
