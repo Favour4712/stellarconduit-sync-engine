@@ -129,7 +129,13 @@ impl SyncEngineDb {
                     let priority: i64 = row.get(2)?;
                     let enqueued_at: i64 = row.get(3)?;
                     let envelope_bytes: Vec<u8> = row.get(4)?;
-                    Ok(Some((source_account, sequence, priority, enqueued_at, envelope_bytes)))
+                    Ok(Some((
+                        source_account,
+                        sequence,
+                        priority,
+                        enqueued_at,
+                        envelope_bytes,
+                    )))
                 } else {
                     Ok(None)
                 }
@@ -151,7 +157,9 @@ impl SyncEngineDb {
         }
     }
 
-    pub async fn list_queued_envelopes(&self) -> Result<Vec<QueuedEnvelopeRecord>, SyncEngineError> {
+    pub async fn list_queued_envelopes(
+        &self,
+    ) -> Result<Vec<QueuedEnvelopeRecord>, SyncEngineError> {
         let rows = self
             .conn
             .call(|conn| {
@@ -166,7 +174,13 @@ impl SyncEngineDb {
                         let priority: i64 = row.get(2)?;
                         let enqueued_at: i64 = row.get(3)?;
                         let envelope_bytes: Vec<u8> = row.get(4)?;
-                        Ok((source_account, sequence, priority, enqueued_at, envelope_bytes))
+                        Ok((
+                            source_account,
+                            sequence,
+                            priority,
+                            enqueued_at,
+                            envelope_bytes,
+                        ))
                     })?
                     .collect::<Result<Vec<_>, rusqlite::Error>>()?;
                 Ok(rows)
@@ -174,20 +188,25 @@ impl SyncEngineDb {
             .await?;
 
         rows.into_iter()
-            .map(|(source_account, sequence, priority, enqueued_at, envelope_bytes)| {
-                let envelope: TransactionEnvelope = rmp_serde::from_slice(&envelope_bytes)?;
-                Ok(QueuedEnvelopeRecord {
-                    envelope,
-                    source_account,
-                    sequence,
-                    priority: TxPriority::try_from(priority)?,
-                    enqueued_at: enqueued_at as u64,
-                })
-            })
+            .map(
+                |(source_account, sequence, priority, enqueued_at, envelope_bytes)| {
+                    let envelope: TransactionEnvelope = rmp_serde::from_slice(&envelope_bytes)?;
+                    Ok(QueuedEnvelopeRecord {
+                        envelope,
+                        source_account,
+                        sequence,
+                        priority: TxPriority::try_from(priority)?,
+                        enqueued_at: enqueued_at as u64,
+                    })
+                },
+            )
             .collect()
     }
 
-    pub async fn remove_queued_envelope(&self, message_id: [u8; 32]) -> Result<(), SyncEngineError> {
+    pub async fn remove_queued_envelope(
+        &self,
+        message_id: [u8; 32],
+    ) -> Result<(), SyncEngineError> {
         let id = message_id.to_vec();
         self.conn
             .call(move |conn| {
@@ -327,12 +346,14 @@ impl SyncEngineDb {
 
         Ok(rows
             .into_iter()
-            .map(|(source_account, sequence, envelope_a, envelope_b)| Conflict {
-                source_account,
-                sequence,
-                envelope_a: envelope_a.try_into().unwrap_or([0u8; 32]),
-                envelope_b: envelope_b.try_into().unwrap_or([0u8; 32]),
-            })
+            .map(
+                |(source_account, sequence, envelope_a, envelope_b)| Conflict {
+                    source_account,
+                    sequence,
+                    envelope_a: envelope_a.try_into().unwrap_or([0u8; 32]),
+                    envelope_b: envelope_b.try_into().unwrap_or([0u8; 32]),
+                },
+            )
             .collect())
     }
 }

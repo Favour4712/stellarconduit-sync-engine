@@ -59,9 +59,7 @@ async fn test_reserve_sign_persist_and_settle() {
         .expect("envelope should survive a simulated restart");
     assert_eq!(restored.envelope, envelope);
     assert_eq!(
-        db.load_sequence_reservation(source_account)
-            .await
-            .unwrap(),
+        db.load_sequence_reservation(source_account).await.unwrap(),
         Some(101)
     );
 
@@ -73,17 +71,20 @@ async fn test_reserve_sign_persist_and_settle() {
     )
     .await
     .unwrap();
-    db.set_settlement_status(envelope.message_id, SettlementStatus::Settled, 1_700_000_200)
-        .await
-        .unwrap();
+    db.set_settlement_status(
+        envelope.message_id,
+        SettlementStatus::Settled,
+        1_700_000_200,
+    )
+    .await
+    .unwrap();
 
-    let status = db
-        .get_settlement_status(envelope.message_id)
-        .await
-        .unwrap();
+    let status = db.get_settlement_status(envelope.message_id).await.unwrap();
     assert_eq!(status, Some(SettlementStatus::Settled));
 
-    db.remove_queued_envelope(envelope.message_id).await.unwrap();
+    db.remove_queued_envelope(envelope.message_id)
+        .await
+        .unwrap();
     assert!(db
         .get_queued_envelope(envelope.message_id)
         .await
@@ -105,14 +106,9 @@ async fn test_conflicting_envelopes_for_same_slot_are_detected_and_recorded() {
     // Two devices sharing the same account, both offline, both build a
     // payment against the same reserved sequence before either learns about
     // the other — a classic split-mesh double-spend setup.
-    let (envelope_a, seq_a) = OfflineEnvelopeBuilder::build_and_sign(
-        &mut sequences,
-        source_account,
-        &key_a,
-        "xdr_a",
-        10,
-    )
-    .unwrap();
+    let (envelope_a, seq_a) =
+        OfflineEnvelopeBuilder::build_and_sign(&mut sequences, source_account, &key_a, "xdr_a", 10)
+            .unwrap();
 
     // Reset the manager to simulate the second device's independent, stale view.
     let mut sequences_b = SequenceReservationManager::new();

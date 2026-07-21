@@ -98,7 +98,12 @@ impl OutboundTxQueue {
 
     /// Same as [`Self::push`] but with an explicit `enqueued_at`, useful for
     /// restoring a queue from durable storage after a restart.
-    pub fn push_at(&mut self, envelope: TransactionEnvelope, priority: TxPriority, enqueued_at: u64) {
+    pub fn push_at(
+        &mut self,
+        envelope: TransactionEnvelope,
+        priority: TxPriority,
+        enqueued_at: u64,
+    ) {
         self.heap.push(QueuedTx {
             priority,
             enqueued_at,

@@ -57,6 +57,9 @@ mod tests {
         };
         let conflict = conflicts_between(&a, &b).unwrap();
         let result = resolve_conflict(&conflict);
-        assert!(matches!(result, Err(SyncEngineError::UnresolvedConflict(_))));
+        assert!(matches!(
+            result,
+            Err(SyncEngineError::UnresolvedConflict(_))
+        ));
     }
 }

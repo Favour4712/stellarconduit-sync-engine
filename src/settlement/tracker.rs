@@ -126,7 +126,9 @@ mod tests {
         tracker.track(id);
         assert_eq!(tracker.status(&id), Some(SettlementStatus::Queued));
 
-        tracker.transition(id, SettlementStatus::Propagating).unwrap();
+        tracker
+            .transition(id, SettlementStatus::Propagating)
+            .unwrap();
         tracker.transition(id, SettlementStatus::Settled).unwrap();
         assert_eq!(tracker.status(&id), Some(SettlementStatus::Settled));
     }
@@ -136,7 +138,9 @@ mod tests {
         let mut tracker = SettlementTracker::new();
         let id = [2u8; 32];
         tracker.track(id);
-        tracker.transition(id, SettlementStatus::Propagating).unwrap();
+        tracker
+            .transition(id, SettlementStatus::Propagating)
+            .unwrap();
         tracker.transition(id, SettlementStatus::Disputed).unwrap();
         tracker.transition(id, SettlementStatus::Settled).unwrap();
         assert_eq!(tracker.status(&id), Some(SettlementStatus::Settled));
@@ -147,9 +151,13 @@ mod tests {
         let mut tracker = SettlementTracker::new();
         let id = [3u8; 32];
         tracker.track(id);
-        tracker.transition(id, SettlementStatus::Propagating).unwrap();
+        tracker
+            .transition(id, SettlementStatus::Propagating)
+            .unwrap();
         tracker.transition(id, SettlementStatus::Failed).unwrap();
-        tracker.transition(id, SettlementStatus::Propagating).unwrap();
+        tracker
+            .transition(id, SettlementStatus::Propagating)
+            .unwrap();
         assert_eq!(tracker.status(&id), Some(SettlementStatus::Propagating));
     }
 
