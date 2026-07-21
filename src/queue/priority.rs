@@ -20,6 +20,27 @@ pub enum TxPriority {
     Emergency = 2,
 }
 
+impl From<TxPriority> for i64 {
+    fn from(p: TxPriority) -> i64 {
+        p as i64
+    }
+}
+
+impl TryFrom<i64> for TxPriority {
+    type Error = crate::errors::SyncEngineError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(TxPriority::Low),
+            1 => Ok(TxPriority::Normal),
+            2 => Ok(TxPriority::Emergency),
+            other => Err(crate::errors::SyncEngineError::InvalidEnvelope(format!(
+                "unknown TxPriority discriminant {other}"
+            ))),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct QueuedTx {
     priority: TxPriority,
@@ -150,5 +171,18 @@ mod tests {
         q.push(mock_envelope(1), TxPriority::Low);
         assert_eq!(q.len(), 1);
         assert!(!q.is_empty());
+    }
+
+    #[test]
+    fn test_priority_i64_roundtrip() {
+        for p in [TxPriority::Low, TxPriority::Normal, TxPriority::Emergency] {
+            let as_i64: i64 = p.into();
+            assert_eq!(TxPriority::try_from(as_i64).unwrap(), p);
+        }
+    }
+
+    #[test]
+    fn test_priority_from_invalid_i64_errors() {
+        assert!(TxPriority::try_from(99).is_err());
     }
 }
