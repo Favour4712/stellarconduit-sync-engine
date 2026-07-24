@@ -24,6 +24,24 @@ pub enum SyncEngineError {
     #[error("conflict between envelopes could not be resolved off-chain: {0}")]
     UnresolvedConflict(String),
 
+    /// Returned when queuing an Emergency-tier envelope would push the
+    /// device past its configured spending guard (see
+    /// `crate::queue::priority::EmergencyGuardConfig`). This is a soft,
+    /// informative failure: the embedding wallet should catch this variant
+    /// specifically and prompt the user for extra confirmation (e.g. a
+    /// biometric re-auth) rather than treating it as an ordinary queuing
+    /// failure or silently dropping the payment.
+    #[error(
+        "emergency-tier queue limit exceeded: {current}/{max} Emergency payments already \
+         queued within the last {window_secs}s; extra confirmation is required before \
+         queuing another"
+    )]
+    EmergencyQueueLimitExceeded {
+        current: usize,
+        max: usize,
+        window_secs: u64,
+    },
+
     #[error("SQLite connection error: {0}")]
     ConnectionError(#[from] tokio_rusqlite::Error),
 
