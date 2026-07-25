@@ -182,6 +182,47 @@ mod tests {
     }
 
     #[test]
+    fn test_settlement_transition_matrix_is_exhaustive() {
+        use SettlementStatus::*;
+
+        // Hand-written ground truth reachability graph, kept independent of
+        // `can_transition_to`'s own match arms so this test can actually
+        // catch a divergence between the two instead of restating the same
+        // logic. Any (from, to) pair not listed here is expected to be illegal.
+        let allowed: &[(SettlementStatus, SettlementStatus)] = &[
+            (Queued, Propagating),
+            (Propagating, Settled),
+            (Propagating, Failed),
+            (Propagating, Disputed),
+            (Disputed, Settled),
+            (Disputed, Failed),
+            (Failed, Propagating),
+        ];
+
+        let all_states = [Queued, Propagating, Settled, Failed, Disputed];
+
+        let mut checked = 0;
+        for &from in &all_states {
+            for &to in &all_states {
+                let expected = allowed.contains(&(from, to));
+                assert_eq!(
+                    from.can_transition_to(to),
+                    expected,
+                    "mismatch for transition {:?} -> {:?}: expected {}",
+                    from,
+                    to,
+                    expected
+                );
+                checked += 1;
+            }
+        }
+        assert_eq!(
+            checked, 25,
+            "expected all 25 (from, to) pairs across 5 states"
+        );
+    }
+
+    #[test]
     fn test_status_roundtrip_via_str() {
         for status in [
             SettlementStatus::Queued,
