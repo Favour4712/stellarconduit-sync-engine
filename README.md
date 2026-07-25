@@ -183,6 +183,21 @@ cargo build
 cargo test
 ```
 
+### 4. Run the Mock Relay Example
+```bash
+# Basic demo — queue 3 payments and watch them settle
+cargo run --example mock_relay
+
+# Customise payment count and relay latency
+cargo run --example mock_relay -- --payments 5 --relay-delay-ms 200
+
+# Inject a double-spend conflict scenario
+cargo run --example mock_relay -- --inject-conflict
+
+# Combine flags
+cargo run --example mock_relay -- --payments 2 --relay-delay-ms 1000 --inject-conflict
+```
+
 ---
 
 ## Development
