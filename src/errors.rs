@@ -37,6 +37,46 @@ pub enum SyncEngineError {
     #[error("conflict between envelopes could not be resolved off-chain: {0}")]
     UnresolvedConflict(String),
 
+    /// Returned when queuing an Emergency-tier envelope would push the
+    /// device past its configured spending guard (see
+    /// `crate::queue::priority::EmergencyGuardConfig`). This is a soft,
+    /// informative failure: the embedding wallet should catch this variant
+    /// specifically and prompt the user for extra confirmation (e.g. a
+    /// biometric re-auth) rather than treating it as an ordinary queuing
+    /// failure or silently dropping the payment.
+    #[error(
+        "emergency-tier queue limit exceeded: {current}/{max} Emergency payments already \
+         queued within the last {window_secs}s; extra confirmation is required before \
+         queuing another"
+    )]
+    EmergencyQueueLimitExceeded {
+        current: usize,
+        max: usize,
+        window_secs: u64,
+    },
+
+    /// Returned by `crate::envelope::builder::add_signature` when the
+    /// signing key presented does not belong to the account's cached signer
+    /// set (see `crate::queue::sequence::MultisigAccountRegistry`). A
+    /// signature from an unauthorized key must never count toward the
+    /// multisig threshold.
+    #[error("signing key is not a known/authorized signer for account {account}")]
+    UnknownMultisigSigner { account: String },
+
+    /// Returned by `crate::envelope::builder::try_promote` when a
+    /// `PartiallySignedEnvelope`'s accumulated signer weight has not yet
+    /// reached the account's cached threshold — it must not be promoted to
+    /// a dispatchable `TransactionEnvelope` while this holds.
+    #[error(
+        "multisig threshold not met for account {account}: accumulated weight \
+         {accumulated_weight} < required threshold {required_threshold}"
+    )]
+    MultisigThresholdNotMet {
+        account: String,
+        accumulated_weight: u32,
+        required_threshold: u32,
+    },
+
     #[error("SQLite connection error: {0}")]
     ConnectionError(#[from] tokio_rusqlite::Error),
 
