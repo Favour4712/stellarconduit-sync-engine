@@ -13,8 +13,26 @@ use std::collections::HashMap;
 
 use crate::errors::SyncEngineError;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReconciliationOutcome {
+    /// No drift detected: the observed chain sequence equals the local baseline sequence.
+    NoDrift,
+    /// Local baseline was behind reality: the observed chain sequence has advanced past the local baseline.
+    /// Contains any in-flight reserved sequence numbers that are now provably stale (`<= observed_chain_sequence`)
+    /// and the updated baseline sequence number.
+    BehindReality {
+        stale_sequences: Vec<i64>,
+        new_baseline: i64,
+    },
+    /// Local baseline was ahead of reality: the observed chain sequence is lower than the local baseline.
+    /// Handled gracefully to prevent state corruption or invalidation of valid reservations.
+    AheadOfReality { observed: i64, baseline: i64 },
+}
+
 #[derive(Debug, Default)]
 pub struct SequenceReservationManager {
+    /// Baseline sequence number per Stellar source account as last observed on-chain.
+    baseline: HashMap<String, i64>,
     /// Last reserved sequence number per Stellar source account (G... strkey).
     reserved: HashMap<String, i64>,
 }
@@ -28,7 +46,9 @@ impl SequenceReservationManager {
     /// as last observed while the device had connectivity. Reservations for
     /// that account build on top of this baseline.
     pub fn seed(&mut self, account: impl Into<String>, current_chain_sequence: i64) {
-        self.reserved.insert(account.into(), current_chain_sequence);
+        let acc = account.into();
+        self.baseline.insert(acc.clone(), current_chain_sequence);
+        self.reserved.insert(acc, current_chain_sequence);
     }
 
     /// Reserve and return the next sequence number for `account`. The account
@@ -46,6 +66,10 @@ impl SequenceReservationManager {
 
     pub fn last_reserved(&self, account: &str) -> Option<i64> {
         self.reserved.get(account).copied()
+    }
+
+    pub fn baseline(&self, account: &str) -> Option<i64> {
+        self.baseline.get(account).copied()
     }
 
     /// Roll back the most recent reservation for `account`, e.g. when
@@ -66,6 +90,59 @@ impl SequenceReservationManager {
         }
         self.reserved.insert(account.to_string(), last - 1);
         Ok(())
+    }
+
+    /// Reconcile local baseline and reservations against a fresh on-chain observation.
+    ///
+    /// Identifies any in-flight reserved sequences that are now provably stale
+    /// (`<= observed_chain_sequence`) and updates the local baseline.
+    pub fn reconcile(
+        &mut self,
+        account: &str,
+        observed_chain_sequence: i64,
+    ) -> ReconciliationOutcome {
+        let current_baseline = match self.baseline.get(account).copied() {
+            Some(b) => b,
+            None => {
+                self.seed(account, observed_chain_sequence);
+                return ReconciliationOutcome::NoDrift;
+            }
+        };
+
+        if observed_chain_sequence == current_baseline {
+            ReconciliationOutcome::NoDrift
+        } else if observed_chain_sequence < current_baseline {
+            ReconciliationOutcome::AheadOfReality {
+                observed: observed_chain_sequence,
+                baseline: current_baseline,
+            }
+        } else {
+            let current_reserved = self
+                .reserved
+                .get(account)
+                .copied()
+                .unwrap_or(current_baseline);
+
+            let stale_end = observed_chain_sequence.min(current_reserved);
+            let stale_sequences = if stale_end > current_baseline {
+                (current_baseline + 1..=stale_end).collect()
+            } else {
+                Vec::new()
+            };
+
+            self.baseline
+                .insert(account.to_string(), observed_chain_sequence);
+
+            if observed_chain_sequence > current_reserved {
+                self.reserved
+                    .insert(account.to_string(), observed_chain_sequence);
+            }
+
+            ReconciliationOutcome::BehindReality {
+                stale_sequences,
+                new_baseline: observed_chain_sequence,
+            }
+        }
     }
 }
 
@@ -160,6 +237,7 @@ mod tests {
         assert_eq!(mgr.reserve_next("GABC").unwrap(), 102);
         assert_eq!(mgr.reserve_next("GABC").unwrap(), 103);
         assert_eq!(mgr.last_reserved("GABC"), Some(103));
+        assert_eq!(mgr.baseline("GABC"), Some(100));
     }
 
     #[test]
@@ -192,6 +270,105 @@ mod tests {
             mgr.release("GABC", 101),
             Err(SyncEngineError::SequenceOutOfOrder { .. })
         ));
+    }
+
+    #[test]
+    fn test_reconcile_no_drift_is_noop() {
+        let mut mgr = SequenceReservationManager::new();
+        mgr.seed("GABC", 100);
+        let outcome = mgr.reconcile("GABC", 100);
+        assert_eq!(outcome, ReconciliationOutcome::NoDrift);
+        assert_eq!(mgr.baseline("GABC"), Some(100));
+        assert_eq!(mgr.last_reserved("GABC"), Some(100));
+    }
+
+    #[test]
+    fn test_reconcile_identifies_stale_reservations() {
+        let mut mgr = SequenceReservationManager::new();
+        mgr.seed("GABC", 100);
+        let seq1 = mgr.reserve_next("GABC").unwrap(); // 101
+        let seq2 = mgr.reserve_next("GABC").unwrap(); // 102
+        let seq3 = mgr.reserve_next("GABC").unwrap(); // 103
+
+        let outcome = mgr.reconcile("GABC", 103);
+        assert_eq!(
+            outcome,
+            ReconciliationOutcome::BehindReality {
+                stale_sequences: vec![seq1, seq2, seq3],
+                new_baseline: 103,
+            }
+        );
+        assert_eq!(mgr.baseline("GABC"), Some(103));
+        assert_eq!(mgr.last_reserved("GABC"), Some(103));
+    }
+
+    #[test]
+    fn test_reconcile_does_not_invalidate_valid_future_reservations() {
+        let mut mgr = SequenceReservationManager::new();
+        mgr.seed("GABC", 100);
+        let seq1 = mgr.reserve_next("GABC").unwrap(); // 101
+        let seq2 = mgr.reserve_next("GABC").unwrap(); // 102
+        let seq3 = mgr.reserve_next("GABC").unwrap(); // 103
+        let seq4 = mgr.reserve_next("GABC").unwrap(); // 104
+        assert_eq!(seq3, 103);
+        assert_eq!(seq4, 104);
+
+        let outcome = mgr.reconcile("GABC", 102);
+        assert_eq!(
+            outcome,
+            ReconciliationOutcome::BehindReality {
+                stale_sequences: vec![seq1, seq2],
+                new_baseline: 102,
+            }
+        );
+        assert_eq!(mgr.baseline("GABC"), Some(102));
+        assert_eq!(mgr.last_reserved("GABC"), Some(104));
+
+        assert_eq!(mgr.reserve_next("GABC").unwrap(), 105);
+    }
+
+    #[test]
+    fn test_reconcile_behind_reality_does_not_corrupt_state() {
+        let mut mgr = SequenceReservationManager::new();
+        mgr.seed("GABC", 100);
+        let _seq1 = mgr.reserve_next("GABC").unwrap(); // 101
+        let _seq2 = mgr.reserve_next("GABC").unwrap(); // 102
+
+        let outcome = mgr.reconcile("GABC", 95);
+        assert_eq!(
+            outcome,
+            ReconciliationOutcome::AheadOfReality {
+                observed: 95,
+                baseline: 100,
+            }
+        );
+        assert_eq!(mgr.baseline("GABC"), Some(100));
+        assert_eq!(mgr.last_reserved("GABC"), Some(102));
+        assert_eq!(mgr.reserve_next("GABC").unwrap(), 103);
+    }
+
+    #[tokio::test]
+    async fn test_reconciled_baseline_persists_via_storage() {
+        use crate::storage::SyncEngineDb;
+
+        let db = SyncEngineDb::init(":memory:").await.unwrap();
+        let mut mgr = SequenceReservationManager::new();
+        mgr.seed("GABC", 100);
+        mgr.reserve_next("GABC").unwrap(); // 101
+        mgr.reserve_next("GABC").unwrap(); // 102
+
+        let outcome = mgr.reconcile("GABC", 105);
+        assert!(matches!(
+            outcome,
+            ReconciliationOutcome::BehindReality { .. }
+        ));
+
+        db.save_sequence_reservation("GABC", mgr.last_reserved("GABC").unwrap())
+            .await
+            .unwrap();
+
+        let loaded = db.load_sequence_reservation("GABC").await.unwrap();
+        assert_eq!(loaded, Some(105));
     }
 
     #[test]
