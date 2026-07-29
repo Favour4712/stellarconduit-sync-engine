@@ -12,6 +12,24 @@ crate-type = ["rlib"]
 # Shared mesh envelope types, signing, and relay-chain proofs
 stellarconduit-core = { git = "https://github.com/StellarConduit/stellarconduit-core.git", rev = "da4c057" }
 
+# Stellar transaction XDR parsing.
+#
+# We derive the true source account and sequence number from the already-built
+# transaction XDR rather than trusting caller-supplied values (see
+# `src/envelope/xdr.rs`). `stellar-xdr` at `22.1` is already in this crate's
+# dependency graph transitively, via `stellarconduit-core -> soroban-sdk`, so
+# depending on it directly adds no new crate versions to the build — important
+# for size-sensitive mobile wallets. Reaching through `soroban-sdk`'s `xdr`
+# re-export instead would have pulled the whole Soroban host API into our direct
+# surface for no benefit; `stellar-xdr` alone gives us exactly the transaction
+# envelope types we need. `default-features = false` with an explicit feature
+# set keeps the footprint to just the `curr` XDR types plus base64 decoding.
+stellar-xdr = { version = "22.1", default-features = false, features = [
+    "std",
+    "curr",
+    "base64",
+] }
+
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "1.1"

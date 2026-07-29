@@ -44,6 +44,19 @@ pub enum SyncEngineError {
     #[error("envelope validation failed: {0}")]
     InvalidEnvelope(String),
 
+    #[error("failed to parse transaction XDR: {0}")]
+    XdrParse(String),
+
+    #[error("caller-claimed source account {claimed} does not match the source account {actual} encoded in the transaction XDR")]
+    SourceAccountMismatch { claimed: String, actual: String },
+
+    #[error("reserved sequence {reserved} does not match the sequence {actual} encoded in the transaction XDR for account {account}")]
+    SequenceMismatch {
+        account: String,
+        reserved: i64,
+        actual: i64,
+    },
+
     #[error("no queued envelope found for message_id {0}")]
     EnvelopeNotFound(String),
 
