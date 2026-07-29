@@ -18,6 +18,40 @@ use stellarconduit_sync_engine::errors::SyncEngineError;
 use stellarconduit_sync_engine::queue::TxPriority;
 use stellarconduit_sync_engine::settlement::SettlementStatus;
 
+/// Real, valid `TransactionEnvelope` XDR, one fixed ed25519 seed byte per
+/// account (`0x44`..`0x99`), generated with the `stellar-xdr` crate — the
+/// same approach as `tests/fixtures/*.b64` (see that directory's README),
+/// just inlined here since each test below needs its own account and, in
+/// some cases, several successive sequence numbers rather than the one or two
+/// shared structural variants `tests/fixtures` provides. `SyncEngine::queue_payment`
+/// (via `OfflineEnvelopeBuilder::build_and_sign`) parses this XDR and requires
+/// its embedded source account and sequence to agree with the caller-claimed
+/// `source_account` and the locally-reserved sequence — see
+/// `src/envelope/xdr.rs` — so a placeholder string no longer works here.
+mod fixtures {
+    pub const QUEUED_ACCOUNT: &str = "GBCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIZCA";
+    pub const QUEUED_SEQ_1: &str = "AAAAAgAAAABERERERERERERERERERERERERERERERERERERERERERAAAAGQAAAAAAAAAAQAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    pub const SEQ_ACCOUNT: &str = "GBKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKVKK3J";
+    pub const SEQ_SEQ_1: &str = "AAAAAgAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQAAAGQAAAAAAAAAAQAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    pub const SEQ_SEQ_2: &str = "AAAAAgAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQAAAGQAAAAAAAAAAgAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    pub const SEQ_SEQ_3: &str = "AAAAAgAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQAAAGQAAAAAAAAAAwAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    pub const SEQ_SEQ_4: &str = "AAAAAgAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQAAAGQAAAAAAAAABAAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    pub const REUSE_ACCOUNT: &str = "GBTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGN6QS";
+    pub const REUSE_SEQ_1: &str = "AAAAAgAAAABmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZgAAAGQAAAAAAAAAAQAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    pub const REUSE_SEQ_2: &str = "AAAAAgAAAABmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZgAAAGQAAAAAAAAAAgAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    pub const DISP_ACCOUNT: &str = "GB3XO53XO53XO53XO53XO53XO53XO53XO53XO53XO53XO53XO53XPNJ3";
+    pub const DISP_SEQ_1: &str = "AAAAAgAAAAB3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3dwAAAGQAAAAAAAAAAQAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    pub const SETTLE_ACCOUNT: &str = "GCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIQAN7";
+    pub const SETTLE_SEQ_1: &str = "AAAAAgAAAACIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiAAAAGQAAAAAAAAAAQAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    pub const PERSIST_ACCOUNT: &str = "GCMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZSTUW";
+    pub const PERSIST_SEQ_1: &str = "AAAAAgAAAACZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmQAAAGQAAAAAAAAAAQAAAAAAAAABAAAADHJlc3RhcnQtdGVzdAAAAAEAAAAAAAAAAQAAAACqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqgAAAAAAAAAABfXhAAAAAAAAAAABAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+}
+
 fn signing_key() -> SigningKey {
     SigningKey::generate(&mut OsRng)
 }
@@ -54,13 +88,19 @@ async fn test_open_empty_db_is_empty() {
 async fn test_queue_payment_survives_restart() {
     let (_dir, path) = temp_db_path();
     let key = signing_key();
-    let account = "GQUEUED";
+    let account = fixtures::QUEUED_ACCOUNT;
 
     // Queue one payment, then drop the engine (simulated crash) immediately.
     let envelope = {
         let mut engine = SyncEngine::open(&path).await.unwrap();
         engine
-            .queue_payment(account, &key, "mock_tx_xdr", TxPriority::Emergency, 10)
+            .queue_payment(
+                account,
+                &key,
+                fixtures::QUEUED_SEQ_1,
+                TxPriority::Emergency,
+                10,
+            )
             .await
             .expect("queue a payment")
     };
@@ -88,14 +128,18 @@ async fn test_queue_payment_survives_restart() {
 async fn test_sequence_reservations_survive_restart() {
     let (_dir, path) = temp_db_path();
     let key = signing_key();
-    let account = "GSEQ";
+    let account = fixtures::SEQ_ACCOUNT;
 
     // Queue several payments from the same account in one session.
     {
         let mut engine = SyncEngine::open(&path).await.unwrap();
-        for _ in 0..3 {
+        for tx_xdr in [
+            fixtures::SEQ_SEQ_1,
+            fixtures::SEQ_SEQ_2,
+            fixtures::SEQ_SEQ_3,
+        ] {
             engine
-                .queue_payment(account, &key, "mock_tx_xdr", TxPriority::Normal, 10)
+                .queue_payment(account, &key, tx_xdr, TxPriority::Normal, 10)
                 .await
                 .unwrap();
         }
@@ -115,7 +159,7 @@ async fn test_sequence_reservations_survive_restart() {
     );
 
     engine
-        .queue_payment(account, &key, "mock_tx_xdr", TxPriority::Normal, 10)
+        .queue_payment(account, &key, fixtures::SEQ_SEQ_4, TxPriority::Normal, 10)
         .await
         .unwrap();
 
@@ -133,7 +177,7 @@ async fn test_no_sequence_reuse_after_restart() {
     // update, reopening must not let a later queue_payment reuse that sequence.
     let (_dir, path) = temp_db_path();
     let key = signing_key();
-    let account = "GREUSE";
+    let account = fixtures::REUSE_ACCOUNT;
 
     // First session: queue one payment. Because the reservation + envelope +
     // initial status are written atomically, the database is fully consistent
@@ -141,7 +185,7 @@ async fn test_no_sequence_reuse_after_restart() {
     {
         let mut engine = SyncEngine::open(&path).await.unwrap();
         engine
-            .queue_payment(account, &key, "xdr_one", TxPriority::Normal, 10)
+            .queue_payment(account, &key, fixtures::REUSE_SEQ_1, TxPriority::Normal, 10)
             .await
             .unwrap();
         // Dropping here models the process being killed right after the
@@ -157,7 +201,7 @@ async fn test_no_sequence_reuse_after_restart() {
         "the reservation was durably persisted despite the simulated crash"
     );
     engine
-        .queue_payment(account, &key, "xdr_two", TxPriority::Normal, 10)
+        .queue_payment(account, &key, fixtures::REUSE_SEQ_2, TxPriority::Normal, 10)
         .await
         .unwrap();
     assert_eq!(
@@ -171,12 +215,12 @@ async fn test_no_sequence_reuse_after_restart() {
 async fn test_no_double_dispatch_after_restart_post_dispatch() {
     let (_dir, path) = temp_db_path();
     let key = signing_key();
-    let account = "GDISP";
+    let account = fixtures::DISP_ACCOUNT;
 
     let envelope = {
         let mut engine = SyncEngine::open(&path).await.unwrap();
         engine
-            .queue_payment(account, &key, "mock_tx_xdr", TxPriority::Normal, 10)
+            .queue_payment(account, &key, fixtures::DISP_SEQ_1, TxPriority::Normal, 10)
             .await
             .unwrap()
     };
@@ -207,11 +251,17 @@ async fn test_no_double_dispatch_after_restart_post_dispatch() {
 async fn test_mark_settlement_rejects_illegal_transition() {
     let (_dir, path) = temp_db_path();
     let key = signing_key();
-    let account = "GSETTLE";
+    let account = fixtures::SETTLE_ACCOUNT;
 
     let mut engine = SyncEngine::open(&path).await.unwrap();
     let envelope = engine
-        .queue_payment(account, &key, "mock_tx_xdr", TxPriority::Normal, 10)
+        .queue_payment(
+            account,
+            &key,
+            fixtures::SETTLE_SEQ_1,
+            TxPriority::Normal,
+            10,
+        )
         .await
         .unwrap();
 
@@ -240,13 +290,19 @@ async fn test_mark_settlement_rejects_illegal_transition() {
 async fn test_mark_settlement_persists_across_restart() {
     let (_dir, path) = temp_db_path();
     let key = signing_key();
-    let account = "GPERSIST";
+    let account = fixtures::PERSIST_ACCOUNT;
 
     // Carry an envelope all the way to Settled, then drop the engine.
     let message_id = {
         let mut engine = SyncEngine::open(&path).await.unwrap();
         let envelope = engine
-            .queue_payment(account, &key, "mock_tx_xdr", TxPriority::Normal, 10)
+            .queue_payment(
+                account,
+                &key,
+                fixtures::PERSIST_SEQ_1,
+                TxPriority::Normal,
+                10,
+            )
             .await
             .unwrap();
         engine
