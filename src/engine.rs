@@ -105,7 +105,7 @@ impl SyncEngine {
             // out of the queue, so it is never dispatched a second time after a
             // restart.
             if status == SettlementStatus::Queued {
-                queue.push_at(record.envelope, record.priority, record.enqueued_at);
+                queue.restore_at(record.envelope, record.priority, record.enqueued_at);
             }
         }
 
@@ -196,7 +196,8 @@ impl SyncEngine {
         }
 
         // === In-memory update, only once durability succeeded. ===
-        self.queue.push_at(envelope.clone(), priority, enqueued_at);
+        self.queue
+            .push_at(envelope.clone(), priority, enqueued_at)?;
         self.settlement.track(envelope.message_id);
 
         Ok(envelope)
