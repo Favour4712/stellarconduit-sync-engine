@@ -151,6 +151,51 @@ impl SyncEngine {
         self.db.load_sequence_reservation(source_account).await
     }
 
+    /// Look up the current settlement status of a queued envelope by its
+    /// `message_id`.
+    ///
+    /// Reads the in-memory tracker, which is rehydrated from durable storage
+    /// on [`open`](SyncEngine::open) and kept in lock-step with it by every
+    /// [`queue_payment`](SyncEngine::queue_payment),
+    /// [`next_to_dispatch`](SyncEngine::next_to_dispatch), and
+    /// [`mark_settlement`](SyncEngine::mark_settlement) call — so this is a
+    /// cheap, synchronous lookup rather than a database round-trip. Returns
+    /// `None` if `message_id` is not (or no longer) tracked.
+    ///
+    /// Exposed as a thin pass-through — same shape as
+    /// [`last_reserved_sequence`](SyncEngine::last_reserved_sequence) above —
+    /// primarily so callers that only have a `SyncEngine` handle (e.g.
+    /// `crate::ffi`) don't need direct access to the private `settlement`
+    /// field.
+    pub fn settlement_status(&self, message_id: [u8; 32]) -> Option<SettlementStatus> {
+        self.settlement.status(&message_id)
+    }
+
+    /// Durably record a newly-detected double-spend conflict as unresolved.
+    ///
+    /// Conflict *detection* (via [`crate::conflict::detect_conflicts`]) and
+    /// wiring that detection into the queue/dispatch lifecycle are tracked as
+    /// follow-up work and not yet performed automatically by this engine;
+    /// this method is the durable-storage half of that pipeline, exposed
+    /// today so callers that detect a conflict by other means (or the FFI
+    /// layer in `crate::ffi`, for testing) have a supported way to record and
+    /// later list it via [`list_unresolved_conflicts`](SyncEngine::list_unresolved_conflicts).
+    pub async fn record_conflict(
+        &self,
+        conflict: &crate::conflict::Conflict,
+        detected_at: u64,
+    ) -> Result<(), SyncEngineError> {
+        self.db.record_conflict(conflict, detected_at).await
+    }
+
+    /// List every unresolved (not yet arbitrated) double-spend conflict
+    /// currently recorded in durable storage.
+    pub async fn list_unresolved_conflicts(
+        &self,
+    ) -> Result<Vec<crate::conflict::Conflict>, SyncEngineError> {
+        self.db.list_unresolved_conflicts().await
+    }
+
     /// Reserve a sequence number, sign, and durably queue a new payment.
     ///
     /// Crash-safety: see the [module docs](self). In short, the reservation +
